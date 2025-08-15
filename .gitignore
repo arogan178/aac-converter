@@ -1,0 +1,23 @@
+# Ignore large media files and common editor/project files
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.flv
+*.wmv
+*.webm
+
+# macOS
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
+
+# Logs and temp
+*.log
+tmp/
+cache/
+
+# node modules (if someone adds node files later)
+node_modules/
