@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+
+# convert.sh - transcode audio in video files (AAC -> other codec) while copying video
+# Usage: convert.sh [-i input_dir] [-o output_dir] [-a audio_codec] [-f format] [-n] [-k] [-F] [-h]
+#   -i INPUT_DIR   Directory to search for video files (default: current dir)
+#   -o OUTPUT_DIR  Directory to write converted files (default: INPUT_DIR)
+#   -a AUDIO_CODEC Target audio codec for ffmpeg (default: ac3)
+#   -f FORMAT      Container/format for output files (default: mov)
+#   -n             Dry-run: show what would be done but don't run ffmpeg or delete files
+#   -k             Keep original files (don't delete after successful conversion)
+#   -F             Force: transcode regardless of detected audio codec
+#   -h             Show this help message
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+INPUT_DIR="."
+OUTPUT_DIR=""
+DRY_RUN=0
+KEEP_ORIGINAL=0
+FORCE=0
+## Default to LPCM (signed 16-bit little-endian PCM) which many editors accept
+AUDIO_CODEC="pcm_s16le"
+FORMAT="mov"
+
+print_help() {
+  sed -n '1,200p' "$0" | sed -n '1,20p'
+  echo
+  echo "Example: $0 -i /path/to/input -o /path/to/output"
+}
+
+while getopts ":i:o:nkha:f:F" opt; do
+  case $opt in
+    i) INPUT_DIR="$OPTARG" ;;
+    o) OUTPUT_DIR="$OPTARG" ;;
+    n) DRY_RUN=1 ;;
+    k) KEEP_ORIGINAL=1 ;;
+    a) 
+      # accept shorthand 'lpcm' for pcm_s16le
+      if [ "$OPTARG" = "lpcm" ] || [ "$OPTARG" = "LPCM" ]; then
+        AUDIO_CODEC="pcm_s16le"
+      else
+        AUDIO_CODEC="$OPTARG"
+      fi
+      ;;
+  f) FORMAT="$OPTARG" ;;
+  F) FORCE=1 ;;
+  h) print_help; exit 0 ;;
+    \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
+    :) echo "Missing argument for -$OPTARG" >&2; print_help; exit 2 ;;
+  esac
+done
+
+# If no output dir provided, default to input dir
+if [ -z "$OUTPUT_DIR" ]; then
+  OUTPUT_DIR="$INPUT_DIR"
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "Error: ffmpeg not found in PATH. Install ffmpeg and retry." >&2
+  exit 3
+fi
+
+if ! command -v ffprobe >/dev/null 2>&1; then
+  echo "Error: ffprobe not found in PATH. ffprobe (part of ffmpeg) is required for audio detection." >&2
+  exit 3
+fi
+
+if [ ! -d "$INPUT_DIR" ]; then
+  echo "Error: input directory '$INPUT_DIR' does not exist or is not a directory." >&2
+  exit 4
+fi
+
+# Create output dir if needed
+if [ ! -d "$OUTPUT_DIR" ]; then
+  echo "Output directory '$OUTPUT_DIR' does not exist. Creating..."
+  if [ $DRY_RUN -eq 0 ]; then
+    mkdir -p "$OUTPUT_DIR"
+  else
+    echo "(dry-run) would create: $OUTPUT_DIR"
+  fi
+fi
+
+echo "Input dir:   $INPUT_DIR"
+echo "Output dir:  $OUTPUT_DIR"
+echo "Audio codec: $AUDIO_CODEC"
+echo "Format:      $FORMAT"
+if [ $DRY_RUN -eq 1 ]; then
+  echo "Mode:       dry-run (no ffmpeg, no deletion)"
+fi
+if [ $KEEP_ORIGINAL -eq 1 ]; then
+  echo "Behavior:   keeping original .mp4 files after successful conversion"
+fi
+
+# Find .mp4 files (non-recursive) and process them safely
+shopt -s nullglob
+cd "$INPUT_DIR"
+
+OUT_EXT="$FORMAT"
+
+for fn in *.mp4; do
+  # If no files match, the loop will be skipped because of nullglob
+  if [ ! -f "$fn" ]; then
+    continue
+  fi
+  echo "Found: $fn"
+  base="${fn%.mp4}"
+  output_fn="$OUTPUT_DIR/${base}.${OUT_EXT}"
+
+  # Detect first audio stream codec (a:0)
+  audio_codec_detected=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$fn" 2>/dev/null || echo "")
+
+  if [ -z "$audio_codec_detected" ]; then
+    echo "  No audio stream detected in '$fn' — skipping"
+    continue
+  fi
+
+  echo "  Detected audio codec: $audio_codec_detected"
+
+  if [ "$audio_codec_detected" != "aac" ] && [ $FORCE -eq 0 ]; then
+    echo "  Audio is not AAC and -F (force) not set; skipping $fn"
+    continue
+  fi
+
+  if [ $DRY_RUN -eq 1 ]; then
+    echo "(dry-run) ffmpeg -i '$INPUT_DIR/$fn' -n -c:v copy -c:a $AUDIO_CODEC -f $FORMAT '$output_fn'"
+    if [ $KEEP_ORIGINAL -eq 0 ]; then
+      echo "(dry-run) would remove '$INPUT_DIR/$fn' after successful conversion (unless -k)"
+    else
+      echo "(dry-run) would keep original '$INPUT_DIR/$fn' (because -k was set)"
+    fi
+    continue
+  fi
+
+  # Run ffmpeg: copy video, transcode audio
+  if ffmpeg -i "$fn" -n -c:v copy -c:a "$AUDIO_CODEC" -f "$FORMAT" "$output_fn" &> /dev/null; then
+    echo "  Converted: $fn -> $output_fn"
+    if [ $KEEP_ORIGINAL -eq 0 ]; then
+      rm -- "$fn"
+      echo "  Removed original: $fn"
+    else
+      echo "  Keeping original: $fn"
+    fi
+  else
+    echo "  Skipped (ffmpeg failed): $fn"
+  fi
+done
+
+shopt -u nullglob
+
