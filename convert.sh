@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 # convert.sh - transcode audio in video files (AAC -> other codec) while copying video
-# Usage: convert.sh [-i input_dir] [-o output_dir] [-a audio_codec] [-f format] [-n] [-k] [-F] [-h]
+# Usage: convert.sh [-i input_dir] [-o output_dir] [-a audio_codec] [-f format] [-j jobs] [-n] [-k] [-F] [-h]
 #   -i INPUT_DIR   Directory to search for video files (default: current dir)
 #   -o OUTPUT_DIR  Directory to write converted files (default: INPUT_DIR)
 #   -a AUDIO_CODEC Target audio codec for ffmpeg (default: ac3)
 #   -f FORMAT      Container/format for output files (default: mov)
+#   -j JOBS        Number of parallel conversion jobs (default: 1)
 #   -n             Dry-run: show what would be done but don't run ffmpeg or delete files
 #   -k             Keep original files (don't delete after successful conversion)
 #   -F             Force: transcode regardless of detected audio codec
@@ -20,9 +21,14 @@ OUTPUT_DIR=""
 DRY_RUN=0
 KEEP_ORIGINAL=0
 FORCE=0
+MAX_JOBS=1
 ## Default to LPCM (signed 16-bit little-endian PCM) which many editors accept
 AUDIO_CODEC="pcm_s16le"
 FORMAT="mov"
+
+log() {
+  echo "$(date '+%H:%M:%S') $1"
+}
 
 print_help() {
   sed -n '1,200p' "$0" | sed -n '1,20p'
@@ -30,7 +36,7 @@ print_help() {
   echo "Example: $0 -i /path/to/input -o /path/to/output"
 }
 
-while getopts ":i:o:nkha:f:F" opt; do
+while getopts ":i:o:nkha:f:Fj:" opt; do
   case $opt in
     i) INPUT_DIR="$OPTARG" ;;
     o) OUTPUT_DIR="$OPTARG" ;;
@@ -46,6 +52,7 @@ while getopts ":i:o:nkha:f:F" opt; do
       ;;
   f) FORMAT="$OPTARG" ;;
   F) FORCE=1 ;;
+  j) MAX_JOBS="$OPTARG" ;;
   h) print_help; exit 0 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
     :) echo "Missing argument for -$OPTARG" >&2; print_help; exit 2 ;;
@@ -90,22 +97,26 @@ if [ $DRY_RUN -eq 1 ]; then
   echo "Mode:       dry-run (no ffmpeg, no deletion)"
 fi
 if [ $KEEP_ORIGINAL -eq 1 ]; then
-  echo "Behavior:   keeping original .mp4 files after successful conversion"
+  echo "Behavior:   keeping original video files after successful conversion"
+fi
+if [ $MAX_JOBS -gt 1 ]; then
+  log "Mode:       parallel ($MAX_JOBS jobs)"
 fi
 
 # Find .mp4 files (non-recursive) and process them safely
 shopt -s nullglob
+shopt -s nocaseglob
 cd "$INPUT_DIR"
 
 OUT_EXT="$FORMAT"
 
-for fn in *.mp4; do
+for fn in *.mp4 *.mov *.avi *.mkv *.webm; do
   # If no files match, the loop will be skipped because of nullglob
   if [ ! -f "$fn" ]; then
     continue
   fi
-  echo "Found: $fn"
-  base="${fn%.mp4}"
+  log "Found: $fn"
+  base="${fn%.*}"
   output_fn="$OUTPUT_DIR/${base}.${OUT_EXT}"
 
   # Detect first audio stream codec (a:0)
@@ -134,18 +145,30 @@ for fn in *.mp4; do
   fi
 
   # Run ffmpeg: copy video, transcode audio
-  if ffmpeg -i "$fn" -n -c:v copy -c:a "$AUDIO_CODEC" -f "$FORMAT" "$output_fn" &> /dev/null; then
-    echo "  Converted: $fn -> $output_fn"
-    if [ $KEEP_ORIGINAL -eq 0 ]; then
-      rm -- "$fn"
-      echo "  Removed original: $fn"
-    else
-      echo "  Keeping original: $fn"
-    fi
+  if [ $MAX_JOBS -gt 1 ] && [ $DRY_RUN -eq 0 ]; then
+    # Parallel mode: run in background
+    ffmpeg -progress /dev/stdout -i "$fn" -n -c:v copy -c:a "$AUDIO_CODEC" -f "$FORMAT" "$output_fn" 2>/dev/null &
+    log "  Started conversion: $fn"
   else
-    echo "  Skipped (ffmpeg failed): $fn"
+    # Sequential mode
+    if ffmpeg -progress /dev/stdout -i "$fn" -n -c:v copy -c:a "$AUDIO_CODEC" -f "$FORMAT" "$output_fn" 2>/dev/null; then
+      log "  ✓ Converted: $fn -> $output_fn"
+      if [ $KEEP_ORIGINAL -eq 0 ]; then
+        rm -- "$fn"
+        log "  Removed original: $fn"
+      else
+        log "  Keeping original: $fn"
+      fi
+    else
+      log "  ✗ Skipped (ffmpeg failed): $fn"
+    fi
   fi
 done
+
+if [ $MAX_JOBS -gt 1 ] && [ $DRY_RUN -eq 0 ]; then
+  wait
+  log "All conversions completed"
+fi
 
 shopt -u nullglob
 
