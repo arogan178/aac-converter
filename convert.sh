@@ -127,15 +127,26 @@ for fn in *.mp4 *.mov *.avi *.mkv *.webm; do
     continue
   fi
 
+  # Count number of audio streams
+  num_audio=$(ffprobe -v error -select_streams a -show_entries stream=index -of default=noprint_wrappers=1:nokey=1 "$fn" 2>/dev/null | wc -l)
+
   echo "  Detected audio codec: $audio_codec_detected"
+  echo "  Number of audio tracks: $num_audio"
 
   if [ "$audio_codec_detected" != "aac" ] && [ $FORCE -eq 0 ]; then
     echo "  Audio is not AAC and -F (force) not set; skipping $fn"
     continue
   fi
 
+  # Set audio codec option: copy if multiple tracks, else transcode
+  if [ $num_audio -gt 1 ]; then
+    audio_option="-c:a copy"
+  else
+    audio_option="-c:a $AUDIO_CODEC"
+  fi
+
   if [ $DRY_RUN -eq 1 ]; then
-    echo "(dry-run) ffmpeg -i '$INPUT_DIR/$fn' -n -c:v copy -c:a $AUDIO_CODEC -f $FORMAT '$output_fn'"
+    echo "(dry-run) ffmpeg -i '$INPUT_DIR/$fn' -n -c:v copy $audio_option -f $FORMAT '$output_fn'"
     if [ $KEEP_ORIGINAL -eq 0 ]; then
       echo "(dry-run) would remove '$INPUT_DIR/$fn' after successful conversion (unless -k)"
     else
@@ -147,11 +158,11 @@ for fn in *.mp4 *.mov *.avi *.mkv *.webm; do
   # Run ffmpeg: copy video, transcode audio
   if [ $MAX_JOBS -gt 1 ] && [ $DRY_RUN -eq 0 ]; then
     # Parallel mode: run in background
-    ffmpeg -progress /dev/stdout -i "$fn" -n -c:v copy -c:a "$AUDIO_CODEC" -f "$FORMAT" "$output_fn" 2>/dev/null &
+    ffmpeg -progress /dev/stdout -i "$fn" -n -c:v copy $audio_option -f "$FORMAT" "$output_fn" 2>/dev/null &
     log "  Started conversion: $fn"
   else
     # Sequential mode
-    if ffmpeg -progress /dev/stdout -i "$fn" -n -c:v copy -c:a "$AUDIO_CODEC" -f "$FORMAT" "$output_fn" 2>/dev/null; then
+    if ffmpeg -progress /dev/stdout -i "$fn" -n -c:v copy $audio_option -f "$FORMAT" "$output_fn" 2>/dev/null; then
       log "  ✓ Converted: $fn -> $output_fn"
       if [ $KEEP_ORIGINAL -eq 0 ]; then
         rm -- "$fn"
