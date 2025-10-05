@@ -7,8 +7,28 @@ AAC audio (e.g. DaVinci Resolve on some Linux setups).
 ## Files
 
 - `convert.sh` — main script. Run with `-h` to see usage.
+- `converter_gui.py` — GUI wrapper for the converter script using tkinter.
 
 ## Usage
+
+### GUI Mode (Recommended for beginners)
+
+Simply run the GUI application:
+
+```bash
+python3 converter_gui.py
+```
+
+The graphical interface allows you to:
+
+- Browse and select input/output directories
+- Choose audio codec and output format from dropdowns
+- Configure parallel jobs
+- Enable options like dry-run, keep originals, and force conversion
+- View real-time conversion progress and output
+- Start, stop, and monitor conversions
+
+### Command Line Mode
 
 Basic usage from the project root:
 
@@ -36,3 +56,5 @@ Notes:
 
 - Make sure `convert.sh` is executable before running: `chmod +x convert.sh`.
 - The script depends on `ffmpeg` / `ffprobe` being installed and available in PATH.
+- The GUI requires Python 3 with tkinter (usually included with Python installations).
+- If a video file has multiple audio tracks, all tracks will be preserved without transcoding.

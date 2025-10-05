@@ -138,9 +138,13 @@ for fn in *.mp4 *.mov *.avi *.mkv *.webm; do
     continue
   fi
 
-  # Set audio codec option: copy if multiple tracks, else transcode
+  # Set audio codec option: when multiple tracks exist, map all streams and
+  # transcode all audio tracks to the chosen target codec so they match the
+  # first track after conversion. For a single audio track, just transcode
+  # that track.
   if [ $num_audio -gt 1 ]; then
-    audio_option="-c:a copy"
+    # Map all input streams and transcode all audio streams to the target codec
+    audio_option="-map 0 -c:a $AUDIO_CODEC"
   else
     audio_option="-c:a $AUDIO_CODEC"
   fi
