@@ -127,7 +127,13 @@ class ConverterGUI:
         # Input Directory
         ttk.Label(main_frame, text="Input Directory:", 
                  style='Field.TLabel').grid(row=row, column=0, sticky=tk.W, pady=10, padx=(15, 0))
-        self.input_dir_var = tk.StringVar(value=os.getcwd())
+        # Default to ~/Videos if it exists, else cwd
+        default_videos = os.path.expanduser('~/Videos')
+        if os.path.isdir(default_videos):
+            default_input = default_videos
+        else:
+            default_input = os.getcwd()
+        self.input_dir_var = tk.StringVar(value=default_input)
         input_entry = ttk.Entry(main_frame, textvariable=self.input_dir_var, 
                                font=('Helvetica', 10), width=50)
         input_entry.grid(row=row, column=1, sticky=(tk.W, tk.E), padx=10)
@@ -138,7 +144,12 @@ class ConverterGUI:
         # Output Directory
         ttk.Label(main_frame, text="Output Directory:", 
                  style='Field.TLabel').grid(row=row, column=0, sticky=tk.W, pady=10, padx=(15, 0))
-        self.output_dir_var = tk.StringVar(value="")
+        # Default output to ~/Videos if it exists, else empty
+        if os.path.isdir(default_videos):
+            default_output = default_videos
+        else:
+            default_output = ""
+        self.output_dir_var = tk.StringVar(value=default_output)
         output_entry = ttk.Entry(main_frame, textvariable=self.output_dir_var, 
                                 font=('Helvetica', 10), width=50)
         output_entry.grid(row=row, column=1, sticky=(tk.W, tk.E), padx=10)
